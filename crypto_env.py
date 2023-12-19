@@ -35,9 +35,7 @@ class CryptoDataset(Dataset):
         self.normalize()
 
     def extract_time_features(self):
-        # 시간 데이터를 datetime 객체로 변환
         self.data_frame["time"] = pd.to_datetime(self.data_frame["time"], unit="ms")
-        # 시간 관련 특성 추출
         self.data_frame["year"] = self.data_frame["time"].dt.year
         self.data_frame["month"] = self.data_frame["time"].dt.month
         self.data_frame["day"] = self.data_frame["time"].dt.day
@@ -48,7 +46,6 @@ class CryptoDataset(Dataset):
         self.data_frame.drop(columns=["time"], inplace=True)
 
     def normalize(self):
-        # 데이터 정규화
         numeric_cols = [
             "price",
             "qty",
@@ -66,16 +63,6 @@ class CryptoDataset(Dataset):
                 self.data_frame[col] - self.data_frame[col].min()
             ) / (self.data_frame[col].max() - self.data_frame[col].min())
         self.data_frame["isBuyerMaker"] = self.data_frame["isBuyerMaker"].astype(int)
-
-    def __len__(self):
-        # 데이터셋의 전체 길이 반환
-        return len(self.data_frame)
-
-    def __getitem__(self, idx):
-        # 데이터를 넘파이 배열로 반환
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        return self.data_frame.iloc[idx].values
 
 
 class Positions(int, Enum):
@@ -190,8 +177,10 @@ class CryptoTradingEnv(gym.Env):
         return float(step_reward)
 
 
-# 데이터셋 로드
+# 데이터셋 로드 및 DataLoader 설정
+# crypto_dataset = CryptoDataset("prepare_data/output_file.csv")
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
+
 data_loader = DataLoader(crypto_dataset, batch_size=1024, shuffle=True)
 
 # 환경 및 에이전트 초기화
@@ -207,6 +196,6 @@ for epoch in tqdm(range(total_epochs), desc="Training Progress"):
         model.learn(total_timesteps=10000)
     logger.info(f"Epoch {epoch + 1}/{total_epochs} completed.")
 
-
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
+logger.info("Training completed and model saved.")
