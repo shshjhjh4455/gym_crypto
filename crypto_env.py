@@ -7,19 +7,37 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from enum import Enum
 from tqdm import tqdm
+import logging
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class CryptoDataset(Dataset):
     def __init__(self, csv_file):
-        self.data_frame = pd.read_csv(csv_file)
-        self.data_frame = self.data_frame[["price", "qty", "time", "isBuyerMaker"]]
+        # header=None 옵션으로 컬럼명 없이 데이터를 불러온다.
+        self.data_frame = pd.read_csv(csv_file, header=None)
+        # 컬럼명을 수동으로 할당한다.
+        self.data_frame.columns = [
+            "trade_id",
+            "price",
+            "qty",
+            "quoteQty",
+            "time",
+            "isBuyerMaker",
+            "isBestMatch",
+        ]
         self.extract_time_features()
         self.normalize()
 
     def extract_time_features(self):
+        # 시간 데이터를 datetime 객체로 변환
         self.data_frame["time"] = pd.to_datetime(self.data_frame["time"], unit="ms")
+        # 시간 관련 특성 추출
         self.data_frame["year"] = self.data_frame["time"].dt.year
         self.data_frame["month"] = self.data_frame["time"].dt.month
         self.data_frame["day"] = self.data_frame["time"].dt.day
@@ -30,6 +48,7 @@ class CryptoDataset(Dataset):
         self.data_frame.drop(columns=["time"], inplace=True)
 
     def normalize(self):
+        # 데이터 정규화
         numeric_cols = [
             "price",
             "qty",
@@ -47,6 +66,16 @@ class CryptoDataset(Dataset):
                 self.data_frame[col] - self.data_frame[col].min()
             ) / (self.data_frame[col].max() - self.data_frame[col].min())
         self.data_frame["isBuyerMaker"] = self.data_frame["isBuyerMaker"].astype(int)
+
+    def __len__(self):
+        # 데이터셋의 전체 길이 반환
+        return len(self.data_frame)
+
+    def __getitem__(self, idx):
+        # 데이터를 넘파이 배열로 반환
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        return self.data_frame.iloc[idx].values
 
 
 class Positions(int, Enum):
@@ -162,7 +191,8 @@ class CryptoTradingEnv(gym.Env):
 
 
 # 데이터셋 로드
-crypto_dataset = CryptoDataset("your_data_file.csv")
+crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
+data_loader = DataLoader(crypto_dataset, batch_size=1024, shuffle=True)
 
 # 환경 및 에이전트 초기화
 env = CryptoTradingEnv(crypto_dataset, window_size=60)
@@ -170,8 +200,13 @@ model = PPO("MlpPolicy", env, verbose=1, device=device)
 
 # 학습
 total_epochs = 10
-for _ in tqdm(range(total_epochs), desc="Training Progress"):
-    model.learn(total_timesteps=10000)
+logger.info("Training starts...")
+for epoch in tqdm(range(total_epochs), desc="Training Progress"):
+    for batch in data_loader:
+        env.load_batch(batch)
+        model.learn(total_timesteps=10000)
+    logger.info(f"Epoch {epoch + 1}/{total_epochs} completed.")
+
 
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
