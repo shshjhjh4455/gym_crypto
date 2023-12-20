@@ -174,17 +174,17 @@ class CryptoTradingEnv(gym.Env):
 torch.autograd.set_detect_anomaly(True)
 
 # 데이터셋 로드
-crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
+crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
 
 # 환경 및 모델 초기화
 env = CryptoTradingEnv(crypto_dataset, window_size=60)
 model = PPO("MlpPolicy", env, verbose=1, device=device)
 
 # 학습 루프
-total_epochs = 10
+total_epochs = 50
 for epoch in tqdm(range(total_epochs), desc="Training Progress"):
     logging.info(f"Epoch {epoch + 1}/{total_epochs}")
-    model.learn(total_timesteps=10000)
+    model.learn(total_timesteps=20000)
 
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
