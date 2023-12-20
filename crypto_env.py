@@ -140,8 +140,6 @@ class CryptoTradingEnv(gym.Env):
 
         return position, trade_made
 
-        return position, trade_made
-
     def render(self, mode="human"):
         pass
 
