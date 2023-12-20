@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 
 # device 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
 
 
 class CryptoDataset(Dataset):
@@ -141,36 +140,36 @@ class CryptoTradingEnv(gym.Env):
 
         return position, trade_made
 
+        return position, trade_made
+
     def render(self, mode="human"):
         pass
 
     def close(self):
         pass
 
-    def _calculate_reward(self, action: int) -> np.float32:
+    def _calculate_reward(self, prev_price, next_price, trade_made):
         step_reward = 0.0
-        current_price = self.raw_prices[self.current_step]
-        last_trade_price = self.raw_prices[self.current_step - 1]
-        ratio = current_price / last_trade_price
 
-        # 바이낸스 수수료 구조에 따라 수수료 비율 설정
-        if self.dataset[self.current_step - 1, 3] == 1:  # BNB 사용 가정
-            trade_fee_percent = 0.00075  # 0.075% 수수료
-        else:
-            trade_fee_percent = 0.001  # 기본 0.1% 수수료
-        cost = np.log(1 - trade_fee_percent)
+        if trade_made:
+            ratio = next_price / prev_price
+            cost = np.log(
+                (1 - self.trade_fee_ask_percent) * (1 - self.trade_fee_bid_percent)
+            )
 
-        # 포지션에 따른 보상 계산
-        if action == Actions.BUY and self.position == Positions.SHORT:
-            step_reward = np.log(2 - ratio) + cost
-        elif action == Actions.SELL and self.position == Positions.LONG:
-            step_reward = np.log(ratio) + cost
-        elif action == Actions.DOUBLE_SELL and self.position == Positions.LONG:
-            step_reward = np.log(ratio) + cost
-        elif action == Actions.DOUBLE_BUY and self.position == Positions.SHORT:
-            step_reward = np.log(2 - ratio) + cost
+            # 롱 또는 숏 포지션에 따른 보상 계산
+            if self.position == Positions.LONG:
+                step_reward = max(0, np.log(ratio)) + cost
+            elif self.position == Positions.SHORT:
+                step_reward = max(0, np.log(2 - ratio)) + cost
 
-        return float(step_reward)
+            # isBuyerMaker 필드를 활용하여 메이커 거래에 추가 보상 제공
+            is_buyer_maker = self.dataset[self.current_step - 1, 3]
+            if is_buyer_maker == 1:  # 메이커 거래인 경우
+                additional_reward = 0.01  # 예시 값, 상황에 맞게 조정 가능
+                step_reward += additional_reward  # 추가 보상 값
+
+        return step_reward
 
 
 # 디버깅 모드 활성화
