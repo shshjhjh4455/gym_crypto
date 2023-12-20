@@ -160,17 +160,22 @@ class CryptoTradingEnv(gym.Env):
 
 # 정책 네트워크 클래스 정의
 class CustomActorCriticPolicy(nn.Module):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, observation_space, action_space, *args, **kwargs):
         super(CustomActorCriticPolicy, self).__init__()
+
+        # 신경망 레이어 정의
+        input_dims = (
+            observation_space.shape[0] * observation_space.shape[1]
+        )  # window_size * 4
         self.actor = nn.Sequential(
-            nn.Linear(4 * 60, 256),
+            nn.Linear(input_dims, 256),
             nn.ReLU(),
             nn.Linear(256, 512),
             nn.ReLU(),
-            nn.Linear(512, len(Actions)),
+            nn.Linear(512, action_space.n),
         )
         self.critic = nn.Sequential(
-            nn.Linear(4 * 60, 256),
+            nn.Linear(input_dims, 256),
             nn.ReLU(),
             nn.Linear(256, 512),
             nn.ReLU(),
@@ -178,7 +183,7 @@ class CustomActorCriticPolicy(nn.Module):
         )
 
     def forward(self, x):
-        x = x.view(x.size(0), -1)
+        x = x.view(x.size(0), -1)  # Flatten
         return self.actor(x), self.critic(x)
 
 
@@ -187,7 +192,13 @@ crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
 env = CryptoTradingEnv(crypto_dataset, window_size=5000)
 
 # PPO 모델 초기화 및 정책 네트워크 설정
-model = PPO(CustomActorCriticPolicy, env, verbose=1, device=device)
+model = PPO(
+    CustomActorCriticPolicy(env.observation_space, env.action_space),
+    env,
+    verbose=1,
+    device=device,
+)
+
 
 # 학습 루프
 total_epochs = 10
