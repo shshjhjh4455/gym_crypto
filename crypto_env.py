@@ -11,7 +11,6 @@ from enum import Enum
 from tqdm import tqdm
 import logging
 
-
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 
@@ -36,7 +35,7 @@ class CryptoDataset(Dataset):
         self.normalize()
 
     def __getitem__(self, index):
-        return self.data_frame[index]
+        return self.data_frame.iloc[index].to_numpy(dtype=np.float32)
 
     def __len__(self):
         return len(self.data_frame)
@@ -104,11 +103,25 @@ class CryptoTradingEnv(gym.Env):
         next_price = self.dataset[self.current_step, 0]
 
         self.position, trade_made = self._transform(self.position, action)
-        reward = self._calculate_reward(prev_price, next_price, trade_made)
+
+        # 거래 수수료 계산
+        trade_fee = (
+            self.trade_fee_ask_percent + self.trade_fee_bid_percent
+        ) * prev_price
+
+        # 롱 포지션과 숏 포지션에 대한 이익 및 손실 계산
+        if self.position == Positions.LONG:
+            profit = (next_price - prev_price) - trade_fee
+        elif self.position == Positions.SHORT:
+            profit = (prev_price - next_price) - trade_fee
+        else:
+            profit = 0
+
+        step_reward = profit
 
         done = self.current_step >= len(self.dataset) - self.window_size
         obs = self._next_observation()
-        return obs, reward, done, {}
+        return obs, step_reward, done, {}
 
     def _transform(self, position, action):
         trade_made = False
@@ -140,21 +153,16 @@ class CryptoTradingEnv(gym.Env):
         step_reward = 0.0
 
         if trade_made:
-            # 거래 수수료 계산
             trade_fee = (
                 self.trade_fee_ask_percent + self.trade_fee_bid_percent
             ) * prev_price
-
-            # 롱 포지션에 대한 이익 계산
             if self.position == Positions.LONG:
                 profit = (next_price - prev_price) - trade_fee
-            # 숏 포지션에 대한 이익 계산
             elif self.position == Positions.SHORT:
                 profit = (prev_price - next_price) - trade_fee
             else:
                 profit = 0
 
-            # 이익을 보상으로 설정
             step_reward = profit
 
         return step_reward
@@ -173,7 +181,6 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
             observation_space, action_space, lr_schedule, *args, **kwargs
         )
 
-        # 신경망 레이어 정의
         input_dims = (
             observation_space.shape[0] * observation_space.shape[1]
         )  # window_size * 4
@@ -197,7 +204,6 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
         action_logits = self.actor(x)
         values = self.critic(x)
 
-        # 행동 분포 생성 및 로그 확률 계산
         action_dist = torch.distributions.Categorical(logits=action_logits)
         if deterministic:
             actions = torch.argmax(action_logits, dim=1)
@@ -211,25 +217,28 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
 
 # 데이터셋 로드 및 환경 초기화
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
-env = CryptoTradingEnv(crypto_dataset, window_size=100000)
+env = CryptoTradingEnv(crypto_dataset, window_size=60)
 
 # PPO 모델 초기화 및 정책 네트워크 설정
 model = PPO(
     CustomActorCriticPolicy,
     env,
     verbose=1,
+    tensorboard_log="./ppo_tensorboard/",
     device=device,
     learning_rate=0.0003,
-    n_steps=10000,
-    batch_size=500,
+    n_steps=2048,
+    batch_size=64,
     n_epochs=10,
 )
+
 
 # 학습 루프
 total_epochs = 10
 for epoch in tqdm(range(total_epochs), desc="Training Progress"):
     logging.info(f"Epoch {epoch + 1}/{total_epochs}")
-    model.learn(total_timesteps=100000)
+    model.learn(total_timesteps=20480)
+
 
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
