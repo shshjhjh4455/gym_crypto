@@ -12,8 +12,9 @@ import logging
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 
-# device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
+# device 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
 
 
 class CryptoDataset(Dataset):
@@ -28,27 +29,28 @@ class CryptoDataset(Dataset):
             "isBuyerMaker",
             "isBestMatch",
         ]
-
-        # 필요한 컬럼만 선택
         self.data_frame = self.data_frame[["price", "qty", "time", "isBuyerMaker"]]
         self.normalize()
 
     def __getitem__(self, index):
-        return self.data_frame.iloc[index].to_numpy(dtype=np.float32)
+        return self.data_frame[index]
 
     def __len__(self):
         return len(self.data_frame)
 
     def normalize(self):
-        # 'price'와 'qty' 컬럼 정규화
         for col in ["price", "qty"]:
-            self.data_frame[col] = (
-                self.data_frame[col] - self.data_frame[col].min()
-            ) / (self.data_frame[col].max() - self.data_frame[col].min())
+            max_val = self.data_frame[col].max()
+            min_val = self.data_frame[col].min()
+            if max_val > min_val:
+                self.data_frame[col] = (self.data_frame[col] - min_val) / (
+                    max_val - min_val
+                )
+            else:
+                self.data_frame[col] = 0
 
-        # 'time' 컬럼은 정규화 없이 그대로 사용
-        # 'isBuyerMaker' boolean을 int로 변환
         self.data_frame["isBuyerMaker"] = self.data_frame["isBuyerMaker"].astype(int)
+        self.data_frame = self.data_frame.to_numpy(dtype=np.float32)
 
 
 class Positions(int, Enum):
@@ -72,16 +74,15 @@ class CryptoTradingEnv(gym.Env):
         self.window_size = window_size
         self.current_step = 0
         self.position = Positions.FLAT
-        self.cost = 1  # 기본 비용
+        self.cost = 10000  # 초기 비용
 
         self.action_space = spaces.Discrete(len(Actions))
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(self.window_size, len(dataset[0])), dtype=np.float32
+            low=0, high=1, shape=(self.window_size, 4), dtype=np.float32
         )
 
         self.trade_fee_bid_percent = 0.005  # 매수 수수료
         self.trade_fee_ask_percent = 0.005  # 매도 수수료
-        self.raw_prices = np.array([item[1] for item in dataset])  # price 데이터
 
     def reset(self):
         self.current_step = 0
@@ -91,13 +92,16 @@ class CryptoTradingEnv(gym.Env):
     def _next_observation(self):
         start = self.current_step
         end = start + self.window_size
-        obs = [self.dataset[i] for i in range(start, min(end, len(self.dataset)))]
-        return np.array(obs)
+        obs = self.dataset[start:end]
+        if len(obs) < self.window_size:
+            padding = np.zeros((self.window_size - len(obs), 4))
+            obs = np.vstack((obs, padding))
+        return obs
 
     def step(self, action):
-        prev_price = self.raw_prices[self.current_step]
+        prev_price = self.dataset[self.current_step, 0]
         self.current_step += 1
-        next_price = self.raw_prices[self.current_step]
+        next_price = self.dataset[self.current_step, 0]
 
         self.position, trade_made = self._transform(self.position, action)
         reward = self._calculate_reward(prev_price, next_price, trade_made)
@@ -148,20 +152,22 @@ class CryptoTradingEnv(gym.Env):
         current_price = self.raw_prices[self.current_step]
         last_trade_price = self.raw_prices[self.current_step - 1]
         ratio = current_price / last_trade_price
-        cost = np.log(
-            (1 - self.trade_fee_ask_percent) * (1 - self.trade_fee_bid_percent)
-        )
 
+        # 바이낸스 수수료 구조에 따라 수수료 비율 설정
+        if self.dataset[self.current_step - 1, 3] == 1:  # BNB 사용 가정
+            trade_fee_percent = 0.00075  # 0.075% 수수료
+        else:
+            trade_fee_percent = 0.001  # 기본 0.1% 수수료
+        cost = np.log(1 - trade_fee_percent)
+
+        # 포지션에 따른 보상 계산
         if action == Actions.BUY and self.position == Positions.SHORT:
             step_reward = np.log(2 - ratio) + cost
-
-        if action == Actions.SELL and self.position == Positions.LONG:
+        elif action == Actions.SELL and self.position == Positions.LONG:
             step_reward = np.log(ratio) + cost
-
-        if action == Actions.DOUBLE_SELL and self.position == Positions.LONG:
+        elif action == Actions.DOUBLE_SELL and self.position == Positions.LONG:
             step_reward = np.log(ratio) + cost
-
-        if action == Actions.DOUBLE_BUY and self.position == Positions.SHORT:
+        elif action == Actions.DOUBLE_BUY and self.position == Positions.SHORT:
             step_reward = np.log(2 - ratio) + cost
 
         return float(step_reward)
@@ -170,8 +176,10 @@ class CryptoTradingEnv(gym.Env):
 # 디버깅 모드 활성화
 torch.autograd.set_detect_anomaly(True)
 
-# 데이터셋 로드 및 환경, 모델 초기화
+# 데이터셋 로드
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
+
+# 환경 및 모델 초기화
 env = CryptoTradingEnv(crypto_dataset, window_size=60)
 model = PPO("MlpPolicy", env, verbose=1, device=device)
 
