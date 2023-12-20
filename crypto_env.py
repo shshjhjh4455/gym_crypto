@@ -178,7 +178,7 @@ crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
 
 # 환경 및 모델 초기화
 env = CryptoTradingEnv(crypto_dataset, window_size=60)
-model = PPO("MlpPolicy", env, verbose=1, device=device)
+model = PPO("MlpPolicy", env, verbose=1, device=device, n_steps=1000000)
 
 # 학습 루프
 total_epochs = 50
