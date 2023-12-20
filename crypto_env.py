@@ -3,12 +3,14 @@ import pandas as pd
 import numpy as np
 from gym import spaces
 from stable_baselines3 import PPO
+from stable_baselines3.common.policies import ActorCriticPolicy
 import torch
 from torch.utils.data import Dataset
 from torch import nn
 from enum import Enum
 from tqdm import tqdm
 import logging
+
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -136,19 +138,25 @@ class CryptoTradingEnv(gym.Env):
 
     def _calculate_reward(self, prev_price, next_price, trade_made):
         step_reward = 0.0
+
         if trade_made:
-            ratio = next_price / prev_price
-            cost = np.log(
-                (1 - self.trade_fee_ask_percent) * (1 - self.trade_fee_bid_percent)
-            )
+            # 거래 수수료 계산
+            trade_fee = (
+                self.trade_fee_ask_percent + self.trade_fee_bid_percent
+            ) * prev_price
+
+            # 롱 포지션에 대한 이익 계산
             if self.position == Positions.LONG:
-                step_reward = max(0, np.log(ratio)) + cost
+                profit = (next_price - prev_price) - trade_fee
+            # 숏 포지션에 대한 이익 계산
             elif self.position == Positions.SHORT:
-                step_reward = max(0, np.log(2 - ratio)) + cost
-            is_buyer_maker = self.dataset[self.current_step - 1, 3]
-            if is_buyer_maker == 1:
-                additional_reward = 0.01
-                step_reward += additional_reward
+                profit = (prev_price - next_price) - trade_fee
+            else:
+                profit = 0
+
+            # 이익을 보상으로 설정
+            step_reward = profit
+
         return step_reward
 
     def render(self, mode="human"):
@@ -159,9 +167,11 @@ class CryptoTradingEnv(gym.Env):
 
 
 # 정책 네트워크 클래스 정의
-class CustomActorCriticPolicy(nn.Module):
-    def __init__(self, observation_space, action_space, *args, **kwargs):
-        super(CustomActorCriticPolicy, self).__init__()
+class CustomActorCriticPolicy(ActorCriticPolicy):
+    def __init__(self, observation_space, action_space, lr_schedule, *args, **kwargs):
+        super(CustomActorCriticPolicy, self).__init__(
+            observation_space, action_space, lr_schedule, *args, **kwargs
+        )
 
         # 신경망 레이어 정의
         input_dims = (
@@ -182,29 +192,44 @@ class CustomActorCriticPolicy(nn.Module):
             nn.Linear(512, 1),
         )
 
-    def forward(self, x):
-        x = x.view(x.size(0), -1)  # Flatten
-        return self.actor(x), self.critic(x)
+    def forward(self, obs, deterministic=False):
+        x = self.extract_features(obs)
+        action_logits = self.actor(x)
+        values = self.critic(x)
+
+        # 행동 분포 생성 및 로그 확률 계산
+        action_dist = torch.distributions.Categorical(logits=action_logits)
+        if deterministic:
+            actions = torch.argmax(action_logits, dim=1)
+        else:
+            actions = action_dist.sample()
+
+        log_probs = action_dist.log_prob(actions)
+
+        return actions, values, log_probs
 
 
 # 데이터셋 로드 및 환경 초기화
-crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-11.csv")
-env = CryptoTradingEnv(crypto_dataset, window_size=5000)
+crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
+env = CryptoTradingEnv(crypto_dataset, window_size=100000)
 
 # PPO 모델 초기화 및 정책 네트워크 설정
 model = PPO(
-    CustomActorCriticPolicy(env.observation_space, env.action_space),
+    CustomActorCriticPolicy,
     env,
     verbose=1,
     device=device,
+    learning_rate=0.0003,
+    n_steps=10000,
+    batch_size=500,
+    n_epochs=10,
 )
-
 
 # 학습 루프
 total_epochs = 10
 for epoch in tqdm(range(total_epochs), desc="Training Progress"):
     logging.info(f"Epoch {epoch + 1}/{total_epochs}")
-    model.learn(total_timesteps=10000)
+    model.learn(total_timesteps=100000)
 
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
