@@ -10,6 +10,7 @@ from torch import nn
 from enum import Enum
 from tqdm import tqdm
 import logging
+import matplotlib.pyplot as plt
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -35,19 +36,24 @@ class CryptoDataset(Dataset):
         self.normalize()
 
     def __getitem__(self, index):
-        return self.data_frame[index]
+        start_idx = max(0, index - self.window_size + 1)
+        data = self.data_frame[start_idx : index + 1]
+        padding = np.zeros((self.window_size - len(data), data.shape[1]))
+        return np.vstack((padding, data))
 
     def __len__(self):
         return len(self.data_frame)
 
     def normalize(self):
-        for col in ["price", "qty"]:
+        self.data_frame["price_diff"] = self.data_frame["price"].diff().fillna(0)
+        for col in ["price_diff", "qty"]:
             max_val = self.data_frame[col].max()
             min_val = self.data_frame[col].min()
             self.data_frame[col] = (self.data_frame[col] - min_val) / (
                 max_val - min_val
             )
         self.data_frame["isBuyerMaker"] = self.data_frame["isBuyerMaker"].astype(int)
+        self.data_frame.drop(columns=["price"], inplace=True)
         self.data_frame = self.data_frame.to_numpy(dtype=np.float32)
 
 
@@ -77,104 +83,118 @@ class CryptoTradingEnv(gym.Env):
 
         self.action_space = spaces.Discrete(len(Actions))
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(self.window_size, 4), dtype=np.float32
+            low=0, high=1, shape=(self.window_size, 3), dtype=np.float32  # 변경: 열 개수 수정
         )
 
         self.trade_fee_bid_percent = 0.005  # 매수 수수료
         self.trade_fee_ask_percent = 0.005  # 매도 수수료
 
+        self.profit_history = []
+        self.position_history = []
+
     def reset(self):
         self.current_step = 0
         self.position = Positions.FLAT
+        self.profit_history = []  # 초기화
+        self.position_history = []  # 초기화
         return self._next_observation()
 
     def _next_observation(self):
         obs = np.array(
-            [
-                self.dataset[i]
-                for i in range(self.current_step, self.current_step + self.window_size)
-            ]
+            [self.dataset[self.current_step + i] for i in range(self.window_size)]
         )
         if len(obs) < self.window_size:
-            padding = np.zeros((self.window_size - len(obs), 4))
+            padding = np.zeros((self.window_size - len(obs), 3))  # 변경: 열 개수 수정
             obs = np.vstack((obs, padding))
         return obs
 
     def step(self, action):
-        prev_price = self.dataset[self.current_step, 0]
+        prev_price_diff = self.dataset[self.current_step, 0]
+        next_price_diff = self.dataset[
+            min(self.current_step + 1, len(self.dataset) - 1), 0
+        ]
         self.current_step += 1
-        next_price = self.dataset[self.current_step, 0]
 
         self.position, trade_made = self._transform(self.position, action)
 
-        # 거래 수수료 계산
         trade_fee = (
             self.trade_fee_ask_percent + self.trade_fee_bid_percent
-        ) * prev_price
+        ) * prev_price_diff
 
-        # 롱 포지션과 숏 포지션에 대한 이익 및 손실 계산
+        profit = 0
         if self.position == Positions.LONG:
-            profit = (next_price - prev_price) - trade_fee
+            profit = next_price_diff - trade_fee
         elif self.position == Positions.SHORT:
-            profit = (prev_price - next_price) - trade_fee
-        else:
-            profit = 0
+            profit = prev_price_diff - trade_fee
 
-        step_reward = profit
+        self.profit_history.append(profit)
+        self.position_history.append(self.position)
 
         done = self.current_step >= len(self.dataset) - self.window_size
         obs = self._next_observation()
-        return obs, step_reward, done, {}
+        return obs, profit, done, {}
 
     def _transform(self, position, action):
         trade_made = False
         if action == Actions.DOUBLE_SELL:
-            if position in [Positions.FLAT, Positions.LONG]:
-                position = Positions.SHORT
-                trade_made = True
+            position = Positions.SHORT
+            trade_made = True
         elif action == Actions.SELL:
             if position == Positions.LONG:
                 position = Positions.FLAT
-                trade_made = True
-            elif position == Positions.FLAT:
+            else:
                 position = Positions.SHORT
-                trade_made = True
+            trade_made = True
         elif action == Actions.BUY:
             if position == Positions.SHORT:
                 position = Positions.FLAT
-                trade_made = True
-            elif position == Positions.FLAT:
+            else:
                 position = Positions.LONG
-                trade_made = True
+            trade_made = True
         elif action == Actions.DOUBLE_BUY:
-            if position in [Positions.FLAT, Positions.SHORT]:
-                position = Positions.LONG
-                trade_made = True
+            position = Positions.LONG
+            trade_made = True
         return position, trade_made
 
-    def _calculate_reward(self, prev_price, next_price, trade_made):
-        step_reward = 0.0
+    def render(self) -> None:
+        plt.clf()
+        plt.xlabel("trading days")
+        plt.ylabel("profit")
+        plt.plot(self.profit_history)
+        plt.savefig("profit.png")
 
-        if trade_made:
-            trade_fee = (
-                self.trade_fee_ask_percent + self.trade_fee_bid_percent
-            ) * prev_price
-            if self.position == Positions.LONG:
-                profit = (next_price - prev_price) - trade_fee
-            elif self.position == Positions.SHORT:
-                profit = (prev_price - next_price) - trade_fee
-            else:
-                profit = 0
+        plt.clf()
+        plt.xlabel("trading days")
+        plt.ylabel("price difference")
+        window_ticks = np.arange(len(self.position_history))
+        plt.plot(window_ticks, self.dataset[window_ticks, 0], label="Price Difference")
 
-            step_reward = profit
+        short_ticks = [
+            i for i, pos in enumerate(self.position_history) if pos == Positions.SHORT
+        ]
+        long_ticks = [
+            i for i, pos in enumerate(self.position_history) if pos == Positions.LONG
+        ]
+        flat_ticks = [
+            i for i, pos in enumerate(self.position_history) if pos == Positions.FLAT
+        ]
 
-        return step_reward
-
-    def render(self, mode="human"):
-        pass
+        plt.plot(
+            long_ticks, self.dataset[long_ticks, 0], "g^", markersize=3, label="Long"
+        )
+        plt.plot(
+            flat_ticks, self.dataset[flat_ticks, 0], "bo", markersize=3, label="Flat"
+        )
+        plt.plot(
+            short_ticks, self.dataset[short_ticks, 0], "rv", markersize=3, label="Short"
+        )
+        plt.legend(loc="upper left", bbox_to_anchor=(0.05, 0.95))
+        plt.savefig("price_diff.png")
 
     def close(self):
-        pass
+        import matplotlib.pyplot as plt
+
+        plt.close()
 
 
 # 정책 네트워크 클래스 정의
@@ -183,10 +203,7 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
         super(CustomActorCriticPolicy, self).__init__(
             observation_space, action_space, lr_schedule, *args, **kwargs
         )
-
-        input_dims = (
-            observation_space.shape[0] * observation_space.shape[1]
-        )  # window_size * 4
+        input_dims = observation_space.shape[0] * observation_space.shape[1]
         self.actor = nn.Sequential(
             nn.Linear(input_dims, 256),
             nn.ReLU(),
@@ -214,13 +231,12 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
             actions = action_dist.sample()
 
         log_probs = action_dist.log_prob(actions)
-
         return actions, values, log_probs
 
 
 # 데이터셋 로드 및 환경 초기화
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
-env = CryptoTradingEnv(crypto_dataset, window_size=60)
+env = CryptoTradingEnv(crypto_dataset, window_size=10000)
 
 # PPO 모델 초기화 및 정책 네트워크 설정
 model = PPO(
@@ -229,19 +245,17 @@ model = PPO(
     verbose=1,
     tensorboard_log="./ppo_tensorboard/",
     device=device,
-    learning_rate=0.0003,
-    n_steps=2048,
-    batch_size=64,
-    n_epochs=10,
+    learning_rate=0.00025,  # 학습률 조정
+    n_steps=2048,  # 스텝 크기 조정
+    batch_size=64,  # 배치 크기 조정
+    n_epochs=10,  # 에폭 수 조정
 )
-
 
 # 학습 루프
 total_epochs = 10
 for epoch in tqdm(range(total_epochs), desc="Training Progress"):
     logging.info(f"Epoch {epoch + 1}/{total_epochs}")
     model.learn(total_timesteps=20480)
-
 
 # 학습된 모델 저장
 model.save("crypto_trading_ppo")
