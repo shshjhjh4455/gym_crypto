@@ -6,8 +6,9 @@ from sklearn.preprocessing import RobustScaler
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.policies import MlpPolicy
+from stable_baselines3.ppo import MlpPolicy
 import torch
+import logging
 
 
 # 데이터 전처리 클래스
@@ -115,9 +116,6 @@ class CryptoTradingEnv(gym.Env):
         return self.data_frame.iloc[self.current_step]
 
     def render(self, mode="human", close=False):
-        if close:
-            plt.close()
-            return
 
         window = 50  # 그래프에 표시할 최근 데이터 포인트 수
         start = max(0, self.current_step - window)
@@ -153,6 +151,7 @@ class CryptoTradingEnv(gym.Env):
         plt.legend()
 
         plt.tight_layout()
+        plt.savefig("crypto_trading_ppo.png")
         plt.show()
 
     def calculate_reward(self, action, data):
@@ -182,12 +181,10 @@ class CryptoTradingEnv(gym.Env):
         return reward
 
 
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.policies import MlpPolicy
-
 # 환경 및 모델 초기화
 if __name__ == "__main__":
+    # 로깅 설정
+    logging.basicConfig(level=logging.INFO)
     # 환경 초기화
     env = CryptoTradingEnv("prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv")
 
@@ -214,8 +211,7 @@ if __name__ == "__main__":
         use_sde=False,
         sde_sample_freq=-1,
         target_kl=None,
-        tensorboard_log=None,
-        create_eval_env=False,
+        tensorboard_log="./ppo_tensorboard/",
         policy_kwargs=None,
         verbose=1,
         seed=None,
@@ -227,4 +223,4 @@ if __name__ == "__main__":
     model.learn(total_timesteps=100000)
 
     # 모델 저장
-    model.save("trained_model")
+    model.save("crypto_trading_ppo")
