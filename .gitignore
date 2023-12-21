@@ -4,3 +4,7 @@ prepare_data/XRPUSDT-trades-2023-11.csv
 prepare_data/XRPUSDT-trades-2023-10.csv
 crypto_trading_ppo
 crypto_trading_ppo
+prepare_data/data_preprocessed/PP-XRPUSDT-trades-2023-10.csv
+prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv
+prepare_data/extracted_files/XRPUSDT-trades-2023-11.csv
+prepare_data/change-XRPUSDT-trades-2023-10.csv
