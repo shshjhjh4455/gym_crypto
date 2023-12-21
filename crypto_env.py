@@ -80,6 +80,7 @@ class DataPreprocessor:
 # 강화학습 환경 클래스
 class CryptoTradingEnv(gym.Env):
     def __init__(self, csv_file):
+        logging.info("Initializing CryptoTradingEnv with file: %s", csv_file)
         super(CryptoTradingEnv, self).__init__()
         self.preprocessor = DataPreprocessor(csv_file)
         self.preprocessor.preprocess_data()
@@ -111,15 +112,20 @@ class CryptoTradingEnv(gym.Env):
         return next_state, reward, done, {}
 
     def reset(self):
+        logging.info("Resetting environment")
         self.current_step = 0
         self.actions = []  # 환경이 리셋될 때 행동 기록도 초기화
         return self.data_frame.iloc[self.current_step]
 
     def render(self, mode="human", close=False):
+        logging.info("Rendering environment at step: %d", self.current_step)
+        if self.data_frame.empty or self.current_step >= len(self.data_frame):
+            logging.warning("No data to render or current step out of range.")
+            return
 
-        window = 50  # 그래프에 표시할 최근 데이터 포인트 수
+        window = 50
         start = max(0, self.current_step - window)
-        end = self.current_step
+        end = min(self.current_step, len(self.data_frame))
 
         plt.figure(figsize=(15, 8))
         plt.subplot(3, 1, 1)
@@ -186,7 +192,9 @@ if __name__ == "__main__":
     # 로깅 설정
     logging.basicConfig(level=logging.INFO)
     # 환경 초기화
-    env = CryptoTradingEnv("prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv")
+    # 환경 초기화 및 벡터 환경 만들기
+    env = make_vec_env(lambda: CryptoTradingEnv("prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv"), n_envs=1, env_kwargs={"render_mode": "human"})
+
 
     # 벡터 환경 만들기
     env = make_vec_env(lambda: env, n_envs=1)
@@ -220,7 +228,12 @@ if __name__ == "__main__":
     )
 
     # 모델 학습
-    model.learn(total_timesteps=1000000)
+    total_timesteps = 1000000
+    render_interval = 10000  # 예를 들어, 매 10,000 타임스텝마다 렌더링
+    for i in range(0, total_timesteps, render_interval):
+        model.learn(total_timesteps=render_interval)
+        env.render()  # 환경 렌더링
+
 
     # 모델 저장
-    model.save("crypto_trading_ppo")
+    model.save("crypto_trading_ppo_test")
