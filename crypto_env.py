@@ -74,6 +74,7 @@ class CryptoTradingEnv(gym.Env):
         self.current_step = 0
         self.position = Positions.FLAT
         self.cost = 10000  # 초기 비용
+        self.last_trade_step = 0  # 마지막 거래가 발생한 스텝 초기화
 
         self.action_space = spaces.Discrete(len(Actions))
         self.observation_space = spaces.Box(
@@ -86,6 +87,7 @@ class CryptoTradingEnv(gym.Env):
     def reset(self):
         self.current_step = 0
         self.position = Positions.FLAT
+        self.last_trade_step = 0
         return self._next_observation()
 
     def _next_observation(self):
@@ -104,12 +106,9 @@ class CryptoTradingEnv(gym.Env):
 
         self.position, trade_made = self._transform(self.position, action)
 
-        # 거래 수수료 계산
         trade_fee = (
             self.trade_fee_ask_percent + self.trade_fee_bid_percent
         ) * prev_price
-
-        # 롱 포지션과 숏 포지션에 대한 이익 및 손실 계산
         if self.position == Positions.LONG:
             profit = (next_price - prev_price) - trade_fee
         elif self.position == Positions.SHORT:
@@ -118,6 +117,19 @@ class CryptoTradingEnv(gym.Env):
             profit = 0
 
         step_reward = profit
+
+        # 거래 빈도 및 포지션 유지 시간 보상
+        trade_frequency_penalty = -0.001 * (self.current_step - self.last_trade_step)
+        holding_bonus = (
+            0.0001 * (self.current_step - self.last_trade_step)
+            if self.position != Positions.FLAT
+            else 0
+        )
+
+        step_reward += trade_frequency_penalty + holding_bonus
+
+        if trade_made:
+            self.last_trade_step = self.current_step
 
         done = self.current_step >= len(self.dataset) - self.window_size
         obs = self._next_observation()
@@ -148,24 +160,6 @@ class CryptoTradingEnv(gym.Env):
                 position = Positions.LONG
                 trade_made = True
         return position, trade_made
-
-    def _calculate_reward(self, prev_price, next_price, trade_made):
-        step_reward = 0.0
-
-        if trade_made:
-            trade_fee = (
-                self.trade_fee_ask_percent + self.trade_fee_bid_percent
-            ) * prev_price
-            if self.position == Positions.LONG:
-                profit = (next_price - prev_price) - trade_fee
-            elif self.position == Positions.SHORT:
-                profit = (prev_price - next_price) - trade_fee
-            else:
-                profit = 0
-
-            step_reward = profit
-
-        return step_reward
 
     def render(self, mode="human"):
         pass
@@ -219,17 +213,18 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
 env = CryptoTradingEnv(crypto_dataset, window_size=60)
 
-# PPO 모델 초기화 및 정책 네트워크 설정
+# PPO 모델 초기화
 model = PPO(
     CustomActorCriticPolicy,
     env,
-    verbose=1,
     tensorboard_log="./ppo_tensorboard/",
+    verbose=1,
     device=device,
-    learning_rate=0.0003,
-    n_steps=2048,
-    batch_size=64,
-    n_epochs=10,
+    learning_rate=0.0001,  # 학습률 감소
+    n_steps=4096,  # 스텝 수 증가
+    batch_size=128,  # 배치 크기 증가
+    n_epochs=20,  # 에포크 수 증가
+    ent_coef=0.01,  # 엔트로피 계수 증가
 )
 
 
