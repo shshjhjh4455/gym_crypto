@@ -35,24 +35,20 @@ class CryptoDataset(Dataset):
         self.normalize()
 
     def __getitem__(self, index):
-        # NumPy 배열에서 행 인덱스를 사용하여 데이터 반환
-        return self.data_frame[index, :]
+        return self.data_frame[index]
 
     def __len__(self):
         return len(self.data_frame)
 
     def normalize(self):
-        # 가격 및 수량에 대한 차분 계산
-        self.data_frame["price_diff"] = self.data_frame["price"].diff().fillna(0)
-        self.data_frame["qty_diff"] = self.data_frame["qty"].diff().fillna(0)
-
-        # 차분에 대한 정규화
-        for col in ["price_diff", "qty_diff"]:
+        for col in ["price", "qty"]:
             max_val = self.data_frame[col].max()
             min_val = self.data_frame[col].min()
             self.data_frame[col] = (self.data_frame[col] - min_val) / (
                 max_val - min_val
             )
+        self.data_frame["isBuyerMaker"] = self.data_frame["isBuyerMaker"].astype(int)
+        self.data_frame = self.data_frame.to_numpy(dtype=np.float32)
 
 
 # 환경 클래스 정의
@@ -81,12 +77,11 @@ class CryptoTradingEnv(gym.Env):
 
         self.action_space = spaces.Discrete(len(Actions))
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(self.window_size, 6), dtype=np.float32
+            low=0, high=1, shape=(self.window_size, 4), dtype=np.float32
         )
 
         self.trade_fee_bid_percent = 0.005  # 매수 수수료
         self.trade_fee_ask_percent = 0.005  # 매도 수수료
-        self.last_trade_step = 0  # 마지막 거래가 발생한 스텝 초기화
 
     def reset(self):
         self.current_step = 0
@@ -94,11 +89,14 @@ class CryptoTradingEnv(gym.Env):
         return self._next_observation()
 
     def _next_observation(self):
-        start = self.current_step
-        end = start + self.window_size
-        obs = self.dataset.data_frame[start:end]  # Correct slicing for NumPy array
+        obs = np.array(
+            [
+                self.dataset[i]
+                for i in range(self.current_step, self.current_step + self.window_size)
+            ]
+        )
         if len(obs) < self.window_size:
-            padding = np.zeros((self.window_size - len(obs), obs.shape[1]))
+            padding = np.zeros((self.window_size - len(obs), 4))
             obs = np.vstack((obs, padding))
         return obs
 
@@ -222,20 +220,19 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
 
 # 데이터셋 로드 및 환경 초기화
 crypto_dataset = CryptoDataset("prepare_data/XRPUSDT-trades-2023-10.csv")
-env = CryptoTradingEnv(crypto_dataset, window_size=10000)
+env = CryptoTradingEnv(crypto_dataset, window_size=60)
 
-# PPO 모델 초기화
+# PPO 모델 초기화 및 정책 네트워크 설정
 model = PPO(
     CustomActorCriticPolicy,
     env,
-    tensorboard_log="./ppo_tensorboard/",
     verbose=1,
+    tensorboard_log="./ppo_tensorboard/",
     device=device,
-    learning_rate=0.0001,  # 학습률 감소
-    n_steps=4096,  # 스텝 수 증가
-    batch_size=128,  # 배치 크기 증가
-    n_epochs=20,  # 에포크 수 증가
-    ent_coef=0.01,  # 엔트로피 계수 증가
+    learning_rate=0.0003,
+    n_steps=2048,
+    batch_size=64,
+    n_epochs=10,
 )
 
 
