@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
-from crypto_env import CryptoTradingEnv, CryptoDataset  # 이전에 정의한 클래스를 사용
+from crypto_env_PPO import CryptoTradingEnv, CryptoDataset  # 이전에 정의한 클래스를 사용
 
 
 def load_test_data(csv_file):
