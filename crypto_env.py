@@ -79,9 +79,9 @@ class DataPreprocessor:
 
 # 강화학습 환경 클래스
 class CryptoTradingEnv(gym.Env):
-    def __init__(self, csv_file):
-        logging.info("Initializing CryptoTradingEnv with file: %s", csv_file)
+    def __init__(self, csv_file, render_mode=None):
         super(CryptoTradingEnv, self).__init__()
+        self.render_mode = render_mode
         self.preprocessor = DataPreprocessor(csv_file)
         self.preprocessor.preprocess_data()
         self.preprocessor.scale_features()
@@ -191,13 +191,15 @@ class CryptoTradingEnv(gym.Env):
 if __name__ == "__main__":
     # 로깅 설정
     logging.basicConfig(level=logging.INFO)
-    # 환경 초기화
-    # 환경 초기화 및 벡터 환경 만들기
-    env = make_vec_env(lambda: CryptoTradingEnv("prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv"), n_envs=1, env_kwargs={"render_mode": "human"})
-
 
     # 벡터 환경 만들기
-    env = make_vec_env(lambda: env, n_envs=1)
+    env = make_vec_env(
+        lambda: CryptoTradingEnv(
+            csv_file="prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv",
+            render_mode="human",
+        ),
+        n_envs=1,
+    )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -229,11 +231,11 @@ if __name__ == "__main__":
 
     # 모델 학습
     total_timesteps = 1000000
-    render_interval = 10000  # 예를 들어, 매 10,000 타임스텝마다 렌더링
+    render_interval = 10000
     for i in range(0, total_timesteps, render_interval):
         model.learn(total_timesteps=render_interval)
-        env.render()  # 환경 렌더링
-
+        for sub_env in env.envs:  # 각 개별 환경에 대해 렌더링 수행
+            sub_env.render()
 
     # 모델 저장
     model.save("crypto_trading_ppo_test")
