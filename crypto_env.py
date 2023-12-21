@@ -108,6 +108,9 @@ class CryptoTradingEnv(gym.Env):
         # 에이전트의 행동을 기록
         self.actions.append(action)
 
+        if done:
+            self.render()
+
         return next_state, reward, done, {}
 
     def reset(self):
@@ -115,8 +118,10 @@ class CryptoTradingEnv(gym.Env):
         self.actions = []  # 환경이 리셋될 때 행동 기록도 초기화
         return self.data_frame.iloc[self.current_step]
 
-    def render(self, mode="human", close=False):
-
+    def render(self, mode="human") -> None:
+        if self.render_mode is None or mode != self.render_mode:
+            return
+        print("Rendering in mode:", mode)
         window = 50  # 그래프에 표시할 최근 데이터 포인트 수
         start = max(0, self.current_step - window)
         end = self.current_step
@@ -154,6 +159,9 @@ class CryptoTradingEnv(gym.Env):
         plt.savefig("crypto_trading_ppo.png")
         plt.show()
 
+    def close(self):
+        plt.close()
+
     def calculate_reward(self, action, data):
         # 각 특성의 영향력을 결정하는 가중치 설정
         weight_price_change = 0.3
@@ -185,11 +193,15 @@ class CryptoTradingEnv(gym.Env):
 if __name__ == "__main__":
     # 로깅 설정
     logging.basicConfig(level=logging.INFO)
+
     # 환경 초기화
-    env = CryptoTradingEnv("prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv")
+    def create_env():
+        return CryptoTradingEnv(
+            "prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv"
+        )
 
     # 벡터 환경 만들기
-    env = make_vec_env(lambda: env, n_envs=1)
+    env = make_vec_env(create_env, n_envs=1)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -220,7 +232,13 @@ if __name__ == "__main__":
     )
 
     # 모델 학습
-    model.learn(total_timesteps=100000)
+    model.learn(total_timesteps=1000)
 
     # 모델 저장
-    model.save("crypto_trading_ppo")
+    model.save("crypto_trading_ppo_test")
+
+    # 환경의 render 메소드 호출하여 그래프 생성 및 저장
+    # env.render()
+
+    for i in range(env.num_envs):
+        env.envs[i].render()

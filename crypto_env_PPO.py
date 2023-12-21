@@ -191,11 +191,6 @@ class CryptoTradingEnv(gym.Env):
         plt.legend(loc="upper left", bbox_to_anchor=(0.05, 0.95))
         plt.savefig("price_diff.png")
 
-    def close(self):
-        import matplotlib.pyplot as plt
-
-        plt.close()
-
 
 # 정책 네트워크 클래스 정의
 class CustomActorCriticPolicy(ActorCriticPolicy):
