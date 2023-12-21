@@ -118,7 +118,6 @@ class CryptoTradingEnv(gym.Env):
         return self.data_frame.iloc[self.current_step]
 
     def render(self, mode="human", close=False):
-        logging.info("Rendering environment at step: %d", self.current_step)
         if self.data_frame.empty or self.current_step >= len(self.data_frame):
             logging.warning("No data to render or current step out of range.")
             return
@@ -128,18 +127,28 @@ class CryptoTradingEnv(gym.Env):
         end = min(self.current_step, len(self.data_frame))
 
         plt.figure(figsize=(15, 8))
-        plt.subplot(3, 1, 1)
-        plt.title("Price Change and Actions")
+        plt.subplot(2, 1, 1)
+        plt.title("Price Change with Agent Actions")
         plt.plot(self.data_frame["price_change"][start:end], label="Price Change")
-        plt.scatter(
-            range(start, end),
-            self.data_frame["price_change"][start:end],
-            c=[
-                "green" if action == 0 else "red" if action == 1 else "blue"
-                for action in self.actions[start:end]
-            ],
-            label="Actions (Buy: Green, Sell: Red, Hold: Blue)",
-        )
+
+        for i, action in enumerate(self.actions[start:end]):
+            action_idx = start + i
+            if action_idx in self.data_frame.index:  # 인덱스의 유효성 검사
+                if action == 0:  # 매수
+                    plt.scatter(
+                        action_idx,
+                        self.data_frame["price_change"][action_idx],
+                        color="green",
+                        label="Buy",
+                    )
+                elif action == 1:  # 매도
+                    plt.scatter(
+                        action_idx,
+                        self.data_frame["price_change"][action_idx],
+                        color="red",
+                        label="Sell",
+                    )
+
         plt.legend()
 
         plt.subplot(3, 1, 2)
