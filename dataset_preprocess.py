@@ -39,7 +39,7 @@ class DataPreprocessor:
 
         # 새로운 데이터프레임 생성
         new_data = {
-            "price_change": data_frame["price"].iloc[price_change_indices],
+            "price_change_origin": data_frame["price"].iloc[price_change_indices],
             "time_diff": data_frame["time"].diff().iloc[price_change_indices].fillna(0),
             "cumulative_qty": cumulative_qty,
             "buyer_maker_ratio": buyer_maker_ratio,
@@ -49,7 +49,9 @@ class DataPreprocessor:
     def scale_features(self):
         if self.data_frame is not None:
             # 로그 변환 및 RobustScaler for price_change
-            self.data_frame["price_change"] = np.log1p(self.data_frame["price_change"])
+            self.data_frame["price_change"] = np.log1p(
+                self.data_frame["price_change_origin"]
+            )
             scaler_price = RobustScaler()
             self.data_frame["price_change"] = scaler_price.fit_transform(
                 self.data_frame["price_change"].values.reshape(-1, 1)
