@@ -225,7 +225,9 @@ if __name__ == "__main__":
     # 벡터 환경 만들기
     vec_env = make_vec_env(lambda: env, n_envs=1)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
+    print(f"MPS 장치가 사용 가능한지: {torch.backends.mps.is_available()}")
 
     # PPO 모델 초기화
     model = PPO(
