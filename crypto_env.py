@@ -101,21 +101,26 @@ class CryptoTradingEnv(gym.Env):
         )
 
     def step(self, action):
-        current_data = self.data_frame.iloc[self.current_step]
-        self.current_step += 1
-        reward = self.calculate_reward(action, current_data)
+        if self.current_step >= len(self.data_frame) - 1:
+            done = True
+            reward = 0
+            next_state = np.zeros(5)
+        else:
+            current_data = self.data_frame.iloc[self.current_step]
+            self.current_step += 1
+            reward = self.calculate_reward(action, current_data)
+            done = self.current_step >= len(self.data_frame) - 1
+            next_state = (
+                self.data_frame.iloc[self.current_step] if not done else np.zeros(5)
+            )
 
-        done = self.current_step >= len(self.data_frame)
-        next_state = (
-            self.data_frame.iloc[self.current_step] if not done else np.zeros(5)
-        )
-        # 에이전트의 행동과 현재 데이터 저장
-        current_price_change_origin = self.data_frame["price_change_origin"].iloc[
-            self.current_step
-        ]
-        self.action_history.append(
-            (self.current_step, action, current_price_change_origin)
-        )
+        if not done:
+            current_price_change_origin = self.data_frame["price_change_origin"].iloc[
+                self.current_step
+            ]
+            self.action_history.append(
+                (self.current_step, action, current_price_change_origin)
+            )
 
         return next_state, reward, done, {}
 
