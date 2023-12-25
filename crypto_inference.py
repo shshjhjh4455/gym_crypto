@@ -24,6 +24,8 @@ class InferenceEnvironment:
         asset_value = initial_capital = 1000  # 가정된 초기 자본
         asset_values = [asset_value]
 
+        prev_price = None  # 이전 스텝의 가격
+
         for _ in tqdm(range(len(self.env.data_frame)), desc="Running Inference"):
             if done:
                 break
@@ -31,26 +33,27 @@ class InferenceEnvironment:
             action, _ = self.model.predict(state, deterministic=True)
             next_state, reward, done, info = self.env.step(action)
 
-            if not done:
-                price_change_origin = next_state[1]
-            else:
-                price_change_origin = 0
-
+            price_change_origin = next_state[1] if not done else 0
             total_rewards += reward
             actions.append(action)
             rewards.append(reward)
             price_changes.append(price_change_origin)
 
-            # 매수/매도 성공률 계산을 위한 데이터 수집 (보다 현실적인 계산 방법)
-            if action == 0 and not done:  # 매수
-                successful_buys.append(price_change_origin < next_state[1])
-            elif action == 1 and not done:  # 매도
-                successful_sells.append(price_change_origin > next_state[1])
+            # 매수/매도 성공률 계산 (보다 현실적인 계산 방법)
+            if prev_price is not None:
+                if action == 0:  # 매수
+                    successful_buys.append(price_change_origin > prev_price)
+                elif action == 1:  # 매도
+                    successful_sells.append(price_change_origin < prev_price)
 
-            # 자산 가치 변화 추정 (단순화된 예시)
-            asset_value += reward  # 보상을 자산 가치 변화로 가정
-            asset_values.append(asset_value)
+            # 자산 가치 변화 추정 (보다 현실적인 예시)
+            if action == 0 or action == 1:  # 매수 또는 매도
+                asset_value += reward  # 보상을 자산 가치 변화로 가정
+                asset_values.append(asset_value)
+            else:
+                asset_values.append(asset_value)  # 보류시 자산 가치 유지
 
+            prev_price = price_change_origin
             state = next_state
 
         self.plot_results(actions, rewards, price_changes)
