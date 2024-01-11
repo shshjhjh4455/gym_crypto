@@ -157,9 +157,21 @@ class CryptoTradingEnv(gym.Env):
         return next_observation, reward, done, {}
 
     def _calculate_expected_return(self, current_price):
-        # 간단한 예시: 고정된 예상 수익률을 반환
-        # 실제 사용 시에는 복잡한 모델 또는 분석 기법을 적용하여 미래 가격을 예측하고 수익률을 계산해야 합니다.
-        expected_future_price = current_price * 1.01  # 예상되는 1% 가격 상승
+        # 모의 시장 분석 또는 예측 모델
+        # 예시: 단순 이동 평균을 사용한 추세 예측
+        ma_short_term = self.data["price"].rolling(window=5).mean().iloc[-1]
+        ma_long_term = self.data["price"].rolling(window=20).mean().iloc[-1]
+
+        if ma_short_term > ma_long_term:
+            # 단기 이동 평균이 장기 이동 평균보다 높으면 상승 추세로 예측
+            expected_future_price = current_price * 1.02  # 예상되는 2% 가격 상승
+        elif ma_short_term < ma_long_term:
+            # 단기 이동 평균이 장기 이동 평균보다 낮으면 하락 추세로 예측
+            expected_future_price = current_price * 0.98  # 예상되는 2% 가격 하락
+        else:
+            # 단기 이동 평균과 장기 이동 평균이 같으면 중립적 상태로 예측
+            expected_future_price = current_price  # 가격 변화 없음으로 예측
+
         expected_return = (expected_future_price - current_price) / current_price
         return expected_return
 
