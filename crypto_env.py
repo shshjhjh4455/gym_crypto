@@ -194,6 +194,19 @@ class CryptoTradingEnv(gym.Env):
         # 손실이 한도를 초과하는지 확인
         return (purchase_value - current_value) / purchase_value > loss_threshold
 
+    def _is_profit_exceeding_threshold(self):
+        # 수익률 목표 설정 (예: 10%)
+        profit_threshold = 0.10
+
+        # 현재 가치 및 구매 가격 대비 수익률 계산
+        current_price = self._get_real_price(self.current_step)
+        crypto_holding = self.portfolio.get("crypto", 0)
+        current_value = crypto_holding * current_price
+        purchase_value = self.portfolio.get("purchase_value", 0)
+
+        # 수익률 계산
+        return (current_value - purchase_value) / purchase_value > profit_threshold
+
     def _execute_trade_action(self, action, current_price):
         # 현재 상태에서 추가적인 정보 가져오기
         current_qty = self.data["qty"].iloc[self.current_step]
