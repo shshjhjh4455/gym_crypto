@@ -114,11 +114,26 @@ class CryptoTradingEnv(gym.Env):
 
 
     def step(self, action):
-        # 주어진 행동에 따라 환경 업데이트
-        # ...
+        # 선택된 행동에 따라 거래를 실행합니다.
+        self._execute_trade_action(action)
 
-        # 다음 관찰, 보상, 완료, 추가 정보 반환
-        return self._next_observation(), reward, done, {}
+        # 다음 스텝으로 이동
+        self.current_step += 1
+
+        # 에피소드 종료 여부를 체크합니다.
+        done = self.current_step >= len(self.data) - self.lookback_window_size
+
+        # 다음 관찰 상태를 얻습니다.
+        next_observation = self._next_observation()
+
+        # 보상을 계산합니다.
+        reward = self._calculate_reward()
+
+        # 거래 로그를 기록합니다.
+        self._log_trade(action)
+
+        return next_observation, reward, done, {}
+
 
     def render(self, mode='human', close=False):
         # 환경의 현재 상태를 시각화
