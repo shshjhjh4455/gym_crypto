@@ -262,6 +262,7 @@ if __name__ == "__main__":
 
     # 모델 학습
     model.learn(total_timesteps=1000000)
+    
 
     # 모델 저장
     model.save("crypto_trading_ppo")
