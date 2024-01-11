@@ -99,10 +99,19 @@ class CryptoTradingEnv(gym.Env):
 
 
     def _next_observation(self):
-        # 현재 관찰을 반환
-        # ...
+        # 현재 스텝에서 lookback_window_size만큼의 데이터 프레임을 가져옵니다.
+        frame = self.data.iloc[self.current_step:self.current_step + self.lookback_window_size]
+
+        # lookback_window_size보다 데이터가 적은 경우, 패딩을 추가합니다.
+        if len(frame) < self.lookback_window_size:
+            padding = [frame.iloc[0]] * (self.lookback_window_size - len(frame))
+            frame = pd.concat(padding + [frame], ignore_index=True)
+
+        # 상태는 현재 시점의 시장 데이터를 나타내는 numpy 배열입니다.
+        observation = frame.values
 
         return observation
+
 
     def step(self, action):
         # 주어진 행동에 따라 환경 업데이트
