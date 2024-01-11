@@ -112,27 +112,78 @@ class CryptoTradingEnv(gym.Env):
 
         return observation
 
+    def _get_real_price(self, step):
+        # step 인덱스에 해당하는 정규화된 가격 데이터를 역변환하여 실제 가격을 반환
+        normalized_price = self.data['price'].iloc[step]
+        real_price = self.data_preprocessor.scaler.inverse_transform([[normalized_price]])[0, 0]
+        return real_price
+
 
     def step(self, action):
-        # 선택된 행동에 따라 거래를 실행합니다.
-        self._execute_trade_action(action)
+        # 정규화된 가격 데이터를 실제 가격으로 역변환
+        current_price = self._get_real_price(self.current_step)
+
+        # 선택된 행동에 따라 거래 실행 및 수수료 적용
+        self._execute_trade_action(action, current_price)
 
         # 다음 스텝으로 이동
         self.current_step += 1
-
-        # 에피소드 종료 여부를 체크합니다.
         done = self.current_step >= len(self.data) - self.lookback_window_size
 
-        # 다음 관찰 상태를 얻습니다.
+        # 다음 관찰 상태를 얻음
         next_observation = self._next_observation()
 
-        # 보상을 계산합니다.
+        # 보상 계산
         reward = self._calculate_reward()
 
-        # 거래 로그를 기록합니다.
-        self._log_trade(action)
+        # 거래 로그 기록
+        self._log_trade(action, current_price)
 
         return next_observation, reward, done, {}
+
+
+
+    def _execute_trade_action(self, action, current_price):
+        
+        # 예상 수익률 계산 (가격 변화 예측 로직 필요)
+        expected_return = self._calculate_expected_return(current_price)
+
+        # 매수
+        if action == 1 and expected_return > 0.001:  # 수수료보다 높은 수익률 기대 시 매수
+            # 매수 금액 결정 (예: 현재 잔액의 일정 비율)
+            buy_amount = self.balance * 0.1  # 예시: 잔액의 10%로 매수
+            self.balance -= buy_amount
+            self.balance -= buy_amount * 0.001  # 수수료 적용
+            self.portfolio['crypto'] = self.portfolio.get('crypto', 0) + (buy_amount / current_price)
+        # 매도
+        elif action == 2 and expected_return > 0.001:  # 수수료보다 높은 수익률 기대 시 매도
+            # 포트폴리오의 모든 암호화폐 매도
+            sell_amount = self.portfolio.get('crypto', 0)
+            self.balance += sell_amount * current_price
+            self.balance -= sell_amount * current_price * 0.001  # 수수료 적용
+            self.portfolio['crypto'] = 0
+        # 보류 및 기타 행동의 경우, 특별한 행동을 취하지 않음
+
+    def _calculate_reward(self):
+        # 간단한 예시: 포트폴리오 가치의 변화를 보상으로 사용
+        current_price = self._get_current_price()
+        crypto_holding = self.portfolio.get('crypto', 0)
+        portfolio_value = self.balance + crypto_holding * current_price
+        reward = portfolio_value - self.initial_balance
+        return reward
+
+    def _log_trade(self, action):
+        # 현재 시간, 행동, 잔액, 포트폴리오 상태 등을 기록
+        current_price = self._get_current_price()
+        crypto_holding = self.portfolio.get('crypto', 0)
+        self.trade_history.append({
+            'step': self.current_step,
+            'action': action,
+            'balance': self.balance,
+            'crypto_holding': crypto_holding,
+            'crypto_value': crypto_holding * current_price,
+            'total_value': self.balance + crypto_holding * current_price
+        })
 
 
     def render(self, mode='human', close=False):
