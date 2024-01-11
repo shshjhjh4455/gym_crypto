@@ -82,6 +82,10 @@ class CryptoTradingEnv(gym.Env):
         self.current_step = 0
         self.max_risk_threshold = max_risk_threshold
 
+        # 평균 거래량과 평균 시간 차이 계산
+        self.avg_qty = self.data["qty"].mean()
+        self.avg_time_diff = self.data["time_diff"].mean()
+
         # 액션 공간 및 상태 공간 정의
         self.action_space = spaces.Discrete(5)
         self.observation_space = spaces.Box(
@@ -177,17 +181,42 @@ class CryptoTradingEnv(gym.Env):
 
         return risk
 
+    def _is_loss_exceeding_threshold(self):
+        # 손실 한도 설정 (예: 5%)
+        loss_threshold = 0.05
+
+        # 포트폴리오 가치 및 구매 가격 대비 현재 가치 계산
+        current_price = self._get_real_price(self.current_step)
+        crypto_holding = self.portfolio.get("crypto", 0)
+        current_value = crypto_holding * current_price
+        purchase_value = self.portfolio.get("purchase_value", 0)
+
+        # 손실이 한도를 초과하는지 확인
+        return (purchase_value - current_value) / purchase_value > loss_threshold
+
     def _execute_trade_action(self, action, current_price):
+        # 현재 상태에서 추가적인 정보 가져오기
+        current_qty = self.data["qty"].iloc[self.current_step]
+        current_time_diff = self.data["time_diff"].iloc[self.current_step]
+        is_buyer = self.data["isBuyer"].iloc[self.current_step]
+        is_maker = self.data["isMaker"].iloc[self.current_step]
+
+        # 시장 활동성 및 매수/매도 경향 분석
+        high_market_activity = (
+            current_qty > self.avg_qty and current_time_diff < self.avg_time_diff
+        )
+        buyer_dominant = is_buyer > is_maker  # 매수 주문이 매도 주문보다 우세한 경우
+
         # 리스크 평가
         risk = self._evaluate_risk()
+        expected_return = self._calculate_expected_return(current_price)
 
-        # 리스크가 허용 범위 내에 있을 때만 거래 실행
-        if risk < self.max_risk_threshold:
-            # 예상 수익률 계산 (가격 변화 예측 로직 필요)
-            expected_return = self._calculate_expected_return(current_price)
-
+        # 리스크가 허용 범위 내이고, 활발한 시장 활동 및 매수 우세 시 거래 실행
+        if risk < self.max_risk_threshold and high_market_activity:
             # 매수
-            if action == 1 and expected_return > 0.001:  # 수수료보다 높은 수익률 기대 시 매수
+            if (
+                action == 1 and expected_return > 0.001 and buyer_dominant
+            ):  # 수수료보다 높은 수익률 기대 시 매수
                 # 매수 금액 결정 (예: 현재 잔액의 일정 비율)
                 buy_amount = self.balance * 0.1  # 예시: 잔액의 10%로 매수
                 self.balance -= buy_amount
@@ -196,7 +225,9 @@ class CryptoTradingEnv(gym.Env):
                     buy_amount / current_price
                 )
             # 매도
-            elif action == 2 and expected_return > 0.001:  # 수수료보다 높은 수익률 기대 시 매도
+            elif (
+                action == 2 and expected_return > 0.001 and not buyer_dominant
+            ):  # 수수료보다 높은 수익률 기대 시 매도
                 # 포트폴리오의 모든 암호화폐 매도
                 sell_amount = self.portfolio.get("crypto", 0)
                 self.balance += sell_amount * current_price
