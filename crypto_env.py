@@ -88,10 +88,15 @@ class CryptoTradingEnv(gym.Env):
         self.trade_history = []  # 거래 내역
 
     def reset(self):
-        # 초기 상태 설정
-        # ...
+        # 초기 잔액 및 포트폴리오 설정
+        self.balance = self.initial_balance
+        self.portfolio = dict()
+        self.current_step = 0
+        self.trade_history = []
 
+        # 최초의 관찰 상태 반환
         return self._next_observation()
+
 
     def _next_observation(self):
         # 현재 관찰을 반환
