@@ -224,56 +224,12 @@ class CryptoTradingEnv(gym.Env):
         return (current_value - purchase_value) / purchase_value > profit_threshold
 
     def _execute_trade_action(self, action, current_price):
-        # 현재 상태에서 추가적인 정보 가져오기
-        current_qty = self.data["qty"].iloc[self.current_step]
-        current_time_diff = self.data["time_diff"].iloc[self.current_step]
-        is_buyer = self.data["isBuyer"].iloc[self.current_step]
-        is_maker = self.data["isMaker"].iloc[self.current_step]
-
-        # 시장 활동성 및 매수/매도 경향 분석
-        high_market_activity = (
-            current_qty > self.avg_qty and current_time_diff < self.avg_time_diff
-        )
-        # 신뢰성 분석
-        high_market_confidence = current_time_diff < self.avg_time_diff
-        # 매수 우세 분석
-        buyer_dominant = is_buyer > is_maker  # 매수 주문이 매도 주문보다 우세한 경우
-
-        # 리스크 평가
-        risk = self._evaluate_risk()
-        expected_return = self._calculate_expected_return(current_price)
-
-        # 매수/매도 주문 실행
-        if (
-            risk < self.max_risk_threshold
-            and high_market_activity
-            and high_market_confidence
-        ):
-            # 매수
-            if (
-                action == 1 and expected_return > 0.001 and buyer_dominant
-            ):  # 수수료보다 높은 수익률 기대, 매수 주문 우세시 매수
-                # 매수 금액 결정 (예: 현재 잔액의 일정 비율)
-                buy_amount = self.balance * 0.1  # 예시: 잔액의 10%로 매수
-                self.balance -= buy_amount
-                self.balance -= buy_amount * 0.001  # 수수료 적용
-                self.portfolio["crypto"] = self.portfolio.get("crypto", 0) + (
-                    buy_amount / current_price
-                )
-            # 매도
-            elif (
-                action == 2
-                and expected_return > 0.001
-                and not buyer_dominant
-                and self.portfolio.get("crypto", 0) > 0
-            ):  # 수수료보다 높은 수익률 기대 시 매도
-                # 포트폴리오의 모든 암호화폐 매도
-                sell_amount = self.portfolio.get("crypto", 0)
-                self.balance += sell_amount * current_price
-                self.balance -= sell_amount * current_price * 0.001  # 수수료 적용
-                self.portfolio["crypto"] = 0
-            # 보류 및 기타 행동의 경우, 특별한 행동을 취하지 않음
-
+        # 매수 및 매도 로직 간소화
+        if action == 1:
+            self._buy_crypto(current_price)
+        elif action == 2:
+            self._sell_crypto(current_price)
+    
     def _calculate_reward(self):
         # 포트폴리오 가치 계산
         current_price = self._get_real_price(self.current_step)
