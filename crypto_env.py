@@ -17,6 +17,7 @@ class DataPreprocessor:
     def __init__(self, csv_file):
         self.csv_file = csv_file
         self.data_frame = None
+        self.scalers = {}  # 각 컬럼에 대한 스케일러를 저장할 딕셔너리
 
     def preprocess_data(self):
         # 데이터 읽기 및 컬럼 지정
@@ -48,10 +49,11 @@ class DataPreprocessor:
     def scale_features(self):
         if self.data_frame is not None:
             # RobustScaler를 사용한 스케일링
-            scaler = RobustScaler()
             scaled_columns = ["price", "qty", "time_diff"]
             for col in scaled_columns:
+                scaler = RobustScaler()  # 각 컬럼에 대한 스케일러 생성
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
+                self.scalers[col] = scaler  # 스케일러 저장
 
     def get_processed_data(self):
         return self.data_frame
@@ -129,7 +131,7 @@ class CryptoTradingEnv(gym.Env):
     def _get_real_price(self, step):
         # step 인덱스에 해당하는 정규화된 가격 데이터를 역변환하여 실제 가격을 반환
         normalized_price = self.data["price"].iloc[step]
-        real_price = self.data_preprocessor.scaler.inverse_transform(
+        real_price = self.data_preprocessor.scalers["price"].inverse_transform(
             [[normalized_price]]
         )[0, 0]
         return real_price
