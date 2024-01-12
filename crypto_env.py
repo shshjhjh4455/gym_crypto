@@ -223,13 +223,65 @@ class CryptoTradingEnv(gym.Env):
         # 수익률 계산
         return (current_value - purchase_value) / purchase_value > profit_threshold
 
+    def _buy_crypto(self, current_price):
+        # 시장 분석
+        is_buyer_dominant = (
+            self.data["isBuyer"].iloc[self.current_step]
+            > self.data["isMaker"].iloc[self.current_step]
+        )
+        low_price_indicator = (
+            current_price
+            < self.data["price"].rolling(window=20).mean().iloc[self.current_step]
+        )
+
+        # 손실 제한 확인
+        loss_limit_not_exceeded = not self._is_loss_exceeding_threshold()
+
+        # 매수 조건
+        if (
+            self.balance > 0
+            and is_buyer_dominant
+            and low_price_indicator
+            and loss_limit_not_exceeded
+        ):
+            buy_amount = self.balance * 0.1  # 예시: 잔액의 10% 매수
+            fees = buy_amount * 0.001  # 수수료
+            buy_amount -= fees
+            self.balance -= buy_amount
+            crypto_bought = buy_amount / current_price
+            self.portfolio["crypto"] = self.portfolio.get("crypto", 0) + crypto_bought
+
+    def _sell_crypto(self, current_price):
+        # 시장 분석
+        high_price_indicator = (
+            current_price
+            > self.data["price"].rolling(window=20).mean().iloc[self.current_step]
+        )
+
+        # 수익 목표 및 손실 제한 확인
+        profit_target_achieved = self._is_profit_exceeding_threshold()
+        loss_limit_exceeded = self._is_loss_exceeding_threshold()
+
+        # 매도 조건
+        crypto_holding = self.portfolio.get("crypto", 0)
+        if (
+            crypto_holding > 0
+            and (high_price_indicator and profit_target_achieved)
+            or loss_limit_exceeded
+        ):
+            sell_amount = crypto_holding
+            fees = sell_amount * current_price * 0.001  # 수수료
+            sell_value = sell_amount * current_price - fees
+            self.balance += sell_value
+            self.portfolio["crypto"] = 0
+
     def _execute_trade_action(self, action, current_price):
         # 매수 및 매도 로직 간소화
         if action == 1:
             self._buy_crypto(current_price)
         elif action == 2:
             self._sell_crypto(current_price)
-    
+
     def _calculate_reward(self):
         # 포트폴리오 가치 계산
         current_price = self._get_real_price(self.current_step)
