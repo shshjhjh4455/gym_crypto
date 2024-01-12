@@ -2,6 +2,7 @@ import gym
 import pandas as pd
 import numpy as np
 from gym import spaces
+from gym.envs.registration import register
 from sklearn.preprocessing import OneHotEncoder, RobustScaler
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
@@ -89,10 +90,11 @@ class CryptoTradingEnv(gym.Env):
 
         # 액션 공간 및 상태 공간 정의
         self.action_space = spaces.Discrete(5)
+        num_features = len(self.data.columns)
         self.observation_space = spaces.Box(
-            low=self.data.min(axis=0).values,
-            high=self.data.max(axis=0).values,
-            shape=(lookback_window_size, len(self.data.columns)),
+            low=np.tile(self.data.min(axis=0).values, (lookback_window_size, 1)),
+            high=np.tile(self.data.max(axis=0).values, (lookback_window_size, 1)),
+            shape=(lookback_window_size, num_features),
             dtype=np.float32,
         )
 
@@ -111,14 +113,18 @@ class CryptoTradingEnv(gym.Env):
         return self._next_observation()
 
     def _next_observation(self):
-        # 현재 스텝부터 lookback_window_size 만큼 데이터 가져오기
         start = max(self.current_step - self.lookback_window_size, 0)
         frame = self.data.iloc[start : self.current_step]
 
         # 패딩 필요 시 패딩 추가
         if len(frame) < self.lookback_window_size:
-            padding = [frame.iloc[0]] * (self.lookback_window_size - len(frame))
-            frame = pd.concat(padding + [frame], ignore_index=True)
+            # 데이터 프레임이 비어있는 경우 기본값으로 패딩 (예: 0)
+            padding_length = self.lookback_window_size - len(frame)
+            padding = pd.DataFrame(
+                np.zeros((padding_length, len(self.data.columns))),
+                columns=self.data.columns,
+            )
+            frame = pd.concat([padding, frame], ignore_index=True)
 
         return frame.values
 
@@ -199,8 +205,11 @@ class CryptoTradingEnv(gym.Env):
         current_value = crypto_holding * current_price
         purchase_value = self.portfolio.get("purchase_value", 0)
 
-        # 손실이 한도를 초과하는지 확인
-        return (purchase_value - current_value) / purchase_value > loss_threshold
+        # purchase_value가 0이 아닐 때만 계산 수행
+        if purchase_value != 0:
+            return (purchase_value - current_value) / purchase_value > loss_threshold
+        else:
+            return False
 
     def _is_profit_exceeding_threshold(self):
         # 수익률 목표 설정 (예: 10%)
@@ -213,7 +222,11 @@ class CryptoTradingEnv(gym.Env):
         purchase_value = self.portfolio.get("purchase_value", 0)
 
         # 수익률 계산
-        return (current_value - purchase_value) / purchase_value > profit_threshold
+        # purchase_value가 0이 아닐 때만 계산 수행
+        if purchase_value != 0:
+            return (current_value - purchase_value) / purchase_value > profit_threshold
+        else:
+            return False
 
     def _buy_crypto(self, current_price):
         # 시장 분석
@@ -341,8 +354,26 @@ class CryptoTradingEnv(gym.Env):
 
 def main():
     # GPU 사용 설정
-    device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # MPS 사용 가능 여부 확인
+    if torch.backends.mps.is_available():
+        # MPS 사용 설정
+        torch.set_default_tensor_type(torch.FloatTensor)
+        device = torch.device("mps")
+    else:
+        # MPS를 사용할 수 없는 경우 CPU 사용
+        device = torch.device("cpu")
+
+    # 환경 등록
+    register(
+        id="CryptoTradingEnv-v0",
+        entry_point="crypto_env:CryptoTradingEnv",
+        kwargs={
+            "csv_file": "prepare_data/extracted_files/XRPUSDT-trades-2023-10.csv",
+            "initial_balance": 10000,
+            "lookback_window_size": 50,
+            "max_risk_threshold": 0.05,
+        },
+    )
 
     # 환경 생성 및 초기화
     env = gym.make("CryptoTradingEnv-v0")
@@ -353,7 +384,6 @@ def main():
     model = PPO(
         "MlpPolicy", env, verbose=1, tensorboard_log="./ppo_crypto_trading_tensorboard/"
     )
-    model.set_device(device)
 
     # 학습 실행
     model.learn(total_timesteps=10000)
