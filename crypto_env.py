@@ -54,9 +54,6 @@ class DataPreprocessor:
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
                 self.scalers[col] = scaler  # 스케일러 저장
 
-            # time 컬럼 제거
-            self.data_frame.drop("time", axis=1, inplace=True)
-
     def get_processed_data(self):
         return self.data_frame
 
@@ -93,8 +90,8 @@ class CryptoTradingEnv(gym.Env):
         # 액션 공간 및 상태 공간 정의
         self.action_space = spaces.Discrete(5)
         self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
+            low=self.data.min(axis=0).values,
+            high=self.data.max(axis=0).values,
             shape=(lookback_window_size, len(self.data.columns)),
             dtype=np.float32,
         )
@@ -110,25 +107,28 @@ class CryptoTradingEnv(gym.Env):
         self.portfolio = dict()
         self.current_step = 0
         self.trade_history = []
-
         # 최초의 관찰 상태 반환
         return self._next_observation()
 
-    def _next_observation(self):
-        # 현재 스텝에서 lookback_window_size만큼의 데이터 프레임을 가져옵니다.
-        frame = self.data.iloc[
-            self.current_step : self.current_step + self.lookback_window_size
-        ]
+    def reset(self):
+        # 초기 잔액 및 포트폴리오 설정만 리셋
+        self.balance = self.initial_balance
+        self.portfolio = dict()
+        self.current_step = 0
+        self.trade_history = []
+        return self._next_observation()
 
-        # lookback_window_size보다 데이터가 적은 경우, 패딩을 추가합니다.
+    def _next_observation(self):
+        # 현재 스텝부터 lookback_window_size 만큼 데이터 가져오기
+        start = max(self.current_step - self.lookback_window_size, 0)
+        frame = self.data.iloc[start : self.current_step]
+
+        # 패딩 필요 시 패딩 추가
         if len(frame) < self.lookback_window_size:
             padding = [frame.iloc[0]] * (self.lookback_window_size - len(frame))
             frame = pd.concat(padding + [frame], ignore_index=True)
 
-        # 상태는 현재 시점의 시장 데이터를 나타내는 numpy 배열입니다.
-        observation = frame.values
-
-        return observation
+        return frame.values
 
     def _get_real_price(self, step):
         # step 인덱스에 해당하는 정규화된 가격 데이터를 역변환하여 실제 가격을 반환
@@ -342,7 +342,6 @@ class CryptoTradingEnv(gym.Env):
 def main():
     # GPU 사용 설정
     device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
-    print(f"MPS 장치가 사용 가능한지: {torch.backends.mps.is_available()}")
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 환경 생성 및 초기화

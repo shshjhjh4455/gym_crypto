@@ -54,11 +54,9 @@ class DataPreprocessor:
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
                 self.scalers[col] = scaler  # 스케일러 저장
 
-            # time 컬럼 제거
-            self.data_frame.drop("time", axis=1, inplace=True)
-
     def get_processed_data(self):
         return self.data_frame
+
 
 def main():
     # CSV 파일 경로 설정
