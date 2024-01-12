@@ -5,11 +5,10 @@ from gym import spaces
 from sklearn.preprocessing import OneHotEncoder, RobustScaler
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.ppo import MlpPolicy
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.evaluation import evaluate_policy
 import torch
-import logging
-import matplotlib.pyplot as plt
 
 
 # 데이터 전처리 클래스
@@ -49,11 +48,14 @@ class DataPreprocessor:
     def scale_features(self):
         if self.data_frame is not None:
             # RobustScaler를 사용한 스케일링
-            scaled_columns = ["price", "qty", "time_diff"]
+            scaled_columns = ["price", "qty", "time_diff", "time"]
             for col in scaled_columns:
                 scaler = RobustScaler()  # 각 컬럼에 대한 스케일러 생성
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
                 self.scalers[col] = scaler  # 스케일러 저장
+
+            # time 컬럼 제거
+            self.data_frame.drop("time", axis=1, inplace=True)
 
     def get_processed_data(self):
         return self.data_frame
@@ -280,8 +282,7 @@ class CryptoTradingEnv(gym.Env):
         reward = portfolio_value - self.initial_balance
         return reward
 
-    def _log_trade(self, action):
-        current_price = self._get_real_price(self.current_step)
+    def _log_trade(self, action, current_price):
         crypto_holding = self.portfolio.get("crypto", 0)
         self.trade_history.append(
             {
@@ -336,3 +337,39 @@ class CryptoTradingEnv(gym.Env):
             plt.legend()
 
             plt.show()
+
+
+def main():
+    # GPU 사용 설정
+    device = torch.device("mps:0" if torch.backends.mps.is_available() else "cpu")
+    print(f"MPS 장치가 사용 가능한지: {torch.backends.mps.is_available()}")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 환경 생성 및 초기화
+    env = gym.make("CryptoTradingEnv-v0")
+    env = DummyVecEnv([lambda: env])  # 벡터화된 환경 사용
+    set_random_seed(0, using_cuda=torch.cuda.is_available())
+
+    # PPO 모델 설정
+    model = PPO(
+        "MlpPolicy", env, verbose=1, tensorboard_log="./ppo_crypto_trading_tensorboard/"
+    )
+    model.set_device(device)
+
+    # 학습 실행
+    model.learn(total_timesteps=10000)
+
+    # 성능 평가
+    mean_reward, std_reward = evaluate_policy(
+        model, model.get_env(), n_eval_episodes=10
+    )
+
+    # 결과 출력
+    print(f"Mean reward: {mean_reward}, std: {std_reward}")
+
+    # 모델 저장
+    model.save("ppo_crypto_trading_model")
+
+
+if __name__ == "__main__":
+    main()

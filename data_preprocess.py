@@ -11,10 +11,12 @@ import torch
 import logging
 
 
+# 데이터 전처리 클래스
 class DataPreprocessor:
     def __init__(self, csv_file):
         self.csv_file = csv_file
         self.data_frame = None
+        self.scalers = {}  # 각 컬럼에 대한 스케일러를 저장할 딕셔너리
 
     def preprocess_data(self):
         # 데이터 읽기 및 컬럼 지정
@@ -46,14 +48,17 @@ class DataPreprocessor:
     def scale_features(self):
         if self.data_frame is not None:
             # RobustScaler를 사용한 스케일링
-            scaler = RobustScaler()
-            scaled_columns = ["price", "qty", "time_diff"]
+            scaled_columns = ["price", "qty", "time_diff", "time"]
             for col in scaled_columns:
+                scaler = RobustScaler()  # 각 컬럼에 대한 스케일러 생성
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
+                self.scalers[col] = scaler  # 스케일러 저장
+
+            # time 컬럼 제거
+            self.data_frame.drop("time", axis=1, inplace=True)
 
     def get_processed_data(self):
         return self.data_frame
-
 
 def main():
     # CSV 파일 경로 설정
