@@ -1,14 +1,15 @@
-import gym
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.envs.registration import register
 import pandas as pd
 import numpy as np
-from gym import spaces
-from gym.envs.registration import register
 from sklearn.preprocessing import OneHotEncoder, RobustScaler
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
 import torch
 
 
@@ -95,7 +96,7 @@ class CryptoTradingEnv(gym.Env):
             low=np.tile(self.data.min(axis=0).values, (lookback_window_size, 1)),
             high=np.tile(self.data.max(axis=0).values, (lookback_window_size, 1)),
             shape=(lookback_window_size, num_features),
-            dtype=np.float32,
+            dtype=np.float64,
         )
 
         # 내부 상태 초기화
@@ -155,8 +156,10 @@ class CryptoTradingEnv(gym.Env):
 
         # 거래 로그 기록
         self._log_trade(action, current_price)
-
-        return next_observation, reward, done, {}
+        # 새로운 스텝 API 준수
+        truncated = False  # 시간 제한에 의한 종료 여부
+        info = {}  # 추가 정보 없음
+        return next_observation, reward, done, info
 
     def _calculate_expected_return(self, current_price):
         # 모의 시장 분석 또는 예측 모델
@@ -377,6 +380,7 @@ def main():
 
     # 환경 생성 및 초기화
     env = gym.make("CryptoTradingEnv-v0")
+    env = Monitor(env)  # Monitor 래퍼 추가
     env = DummyVecEnv([lambda: env])  # 벡터화된 환경 사용
     set_random_seed(0, using_cuda=torch.cuda.is_available())
 
