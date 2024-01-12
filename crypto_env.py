@@ -48,9 +48,9 @@ class DataPreprocessor:
     def scale_features(self):
         if self.data_frame is not None:
             # RobustScaler를 사용한 스케일링
+            scaler = RobustScaler()
             scaled_columns = ["price", "qty", "time_diff", "time"]
             for col in scaled_columns:
-                scaler = RobustScaler()  # 각 컬럼에 대한 스케일러 생성
                 self.data_frame[col] = scaler.fit_transform(self.data_frame[[col]])
                 self.scalers[col] = scaler  # 스케일러 저장
 
@@ -108,14 +108,6 @@ class CryptoTradingEnv(gym.Env):
         self.current_step = 0
         self.trade_history = []
         # 최초의 관찰 상태 반환
-        return self._next_observation()
-
-    def reset(self):
-        # 초기 잔액 및 포트폴리오 설정만 리셋
-        self.balance = self.initial_balance
-        self.portfolio = dict()
-        self.current_step = 0
-        self.trade_history = []
         return self._next_observation()
 
     def _next_observation(self):
